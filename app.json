@@ -51,6 +51,7 @@
       "expo-font"
     ],
     "experiments": {
+      "baseUrl": "/Police-Maps",
       "typedRoutes": true,
       "reactCompiler": true
     },
