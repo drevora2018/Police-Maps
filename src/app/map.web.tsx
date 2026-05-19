@@ -342,7 +342,7 @@ export default function MapWebScreen() {
 
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
-      <div ref={mapElRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={mapElRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
       {showIosInstallHint ? (
         <div
           style={{
@@ -350,6 +350,7 @@ export default function MapWebScreen() {
             left: 12,
             right: 12,
             top: 12,
+            zIndex: 1200,
             background: '#111827',
             color: '#FFFFFF',
             borderRadius: 10,
@@ -360,7 +361,16 @@ export default function MapWebScreen() {
           For better iPhone experience, open in Safari, tap Share, then <b>Add to Home Screen</b>.
         </div>
       ) : null}
-      <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        style={{
+          position: 'absolute',
+          right: 12,
+          top: 12,
+          zIndex: 1200,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}>
         <button
           type="button"
           onClick={() => setRadarOn((v) => !v)}
@@ -395,7 +405,8 @@ export default function MapWebScreen() {
         style={{
           position: 'absolute',
           right: 12,
-          bottom: 86,
+          bottom: 132,
+          zIndex: 1200,
           width: 44,
           height: 44,
           borderRadius: 22,
@@ -410,7 +421,16 @@ export default function MapWebScreen() {
         }}>
         ◎
       </button>
-      <div style={{ position: 'absolute', left: 12, bottom: 12, background: '#fff', borderRadius: 8, padding: 8 }}>
+      <div
+        style={{
+          position: 'absolute',
+          left: 12,
+          bottom: 96,
+          zIndex: 1200,
+          background: '#fff',
+          borderRadius: 8,
+          padding: 8,
+        }}>
         Tap map to drop pin. Click pin for label. Long-press/right-click pin to remove.
       </div>
     </div>
