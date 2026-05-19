@@ -1,12 +1,20 @@
 import React from 'react';
 import { useLocalSearchParams } from 'expo-router';
 
+import { getInstallationId } from '@/lib/installation';
 import { createPin, deletePin, listActivePins, subscribeToPinChanges } from '@/services/pins-service';
 import { Pin, PinType } from '@/types/domain';
 
 const DEFAULT_CENTER: [number, number] = [37.7749, -122.4194];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 16;
+const RADAR_CLEAR_400 = 450;
+const RADAR_CLEAR_200 = 250;
+
+type ProximityState = {
+  reached400: boolean;
+  reached200: boolean;
+};
 
 type LeafletModule = typeof import('leaflet');
 
@@ -22,6 +30,20 @@ function pinIcon(L: LeafletModule, pinType: PinType) {
     iconSize: [34, 44],
     iconAnchor: [17, 44],
   });
+}
+
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const s =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+  return earthRadius * c;
 }
 
 async function reverseGeocodeLabel(lat: number, lng: number) {
@@ -54,9 +76,15 @@ export default function MapWebScreen() {
   const leafletRef = React.useRef<LeafletModule | null>(null);
   const markersRef = React.useRef<Record<string, any>>({});
   const [pins, setPins] = React.useState<Pin[]>([]);
+  const [installationId, setInstallationId] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [radarOn, setRadarOn] = React.useState(false);
+  const [currentCoords, setCurrentCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
+  const [alertsEnabled, setAlertsEnabled] = React.useState(false);
   const [showIosInstallHint, setShowIosInstallHint] = React.useState(false);
   const busyRef = React.useRef(false);
+  const proximityStateRef = React.useRef<Record<string, ProximityState>>({});
+  const watchIdRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     busyRef.current = busy;
@@ -124,12 +152,17 @@ export default function MapWebScreen() {
 
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition((position) => {
-          const coords: [number, number] = [position.coords.latitude, position.coords.longitude];
-          map.setView(coords, FOCUS_ZOOM);
+          const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+          setCurrentCoords(coords);
+          map.setView([coords.latitude, coords.longitude], FOCUS_ZOOM);
         });
       }
 
       setPins(initialPins);
+      const id = await getInstallationId();
+      if (mounted) {
+        setInstallationId(id);
+      }
     };
 
     void setup();
@@ -140,6 +173,22 @@ export default function MapWebScreen() {
         if (eventType === 'DELETE' && old) return prev.filter((p) => p.id !== old.id);
         return prev;
       });
+
+      if (
+        eventType === 'INSERT' &&
+        nextPin &&
+        nextPin.created_by_installation_id !== installationId &&
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      ) {
+        const title = `New ${nextPin.pin_type === 'camera' ? 'camera' : 'police car'} pin`;
+        const body = nextPin.location_label ?? `Tap to focus map`;
+        const notification = new Notification(title, { body, tag: `pin-${nextPin.id}` });
+        notification.onclick = () => {
+          window.focus();
+          mapRef.current?.setView([nextPin.lat, nextPin.lng], FOCUS_ZOOM);
+        };
+      }
     });
 
     return () => {
@@ -149,7 +198,96 @@ export default function MapWebScreen() {
       mapRef.current = null;
       markersRef.current = {};
     };
-  }, []);
+  }, [installationId]);
+
+  React.useEffect(() => {
+    if (!radarOn || !navigator.geolocation) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const coords = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        };
+        setCurrentCoords(coords);
+      },
+      () => {
+        setRadarOn(false);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 10000,
+      }
+    );
+    watchIdRef.current = watchId;
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [radarOn]);
+
+  React.useEffect(() => {
+    if (!radarOn || !currentCoords || !mapRef.current) return;
+    mapRef.current.setView([currentCoords.latitude, currentCoords.longitude], FOCUS_ZOOM);
+
+    for (const pin of pins) {
+      const state = proximityStateRef.current[pin.id] ?? { reached400: false, reached200: false };
+      const distance = distanceMeters(currentCoords.latitude, currentCoords.longitude, pin.lat, pin.lng);
+      const label = pin.pin_type === 'camera' ? 'camera' : 'police';
+
+      if (distance <= 200 && !state.reached200) {
+        state.reached200 = true;
+        state.reached400 = true;
+        proximityStateRef.current[pin.id] = state;
+        alert(`PROXIMITY ALERT: Very close to ${label} pin (${Math.round(distance)}m)`);
+        if (alertsEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const notification = new Notification('PROXIMITY ALERT', {
+            body: `${Math.round(distance)}m from ${label} pin${pin.location_label ? ` near ${pin.location_label}` : ''}`,
+            tag: `proximity-200-${pin.id}`,
+          });
+          notification.onclick = () => {
+            window.focus();
+            mapRef.current?.setView([pin.lat, pin.lng], FOCUS_ZOOM + 1);
+          };
+        }
+        continue;
+      }
+
+      if (distance <= 400 && !state.reached400) {
+        state.reached400 = true;
+        proximityStateRef.current[pin.id] = state;
+        alert(`Proximity warning: Approaching ${label} pin (${Math.round(distance)}m)`);
+        if (alertsEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          const notification = new Notification('Proximity warning', {
+            body: `${Math.round(distance)}m from ${label} pin${pin.location_label ? ` near ${pin.location_label}` : ''}`,
+            tag: `proximity-400-${pin.id}`,
+          });
+          notification.onclick = () => {
+            window.focus();
+            mapRef.current?.setView([pin.lat, pin.lng], FOCUS_ZOOM);
+          };
+        }
+      }
+
+      if (distance > RADAR_CLEAR_400) {
+        state.reached400 = false;
+      }
+      if (distance > RADAR_CLEAR_200) {
+        state.reached200 = false;
+      }
+      proximityStateRef.current[pin.id] = state;
+    }
+  }, [alertsEnabled, currentCoords, pins, radarOn]);
 
   React.useEffect(() => {
     const lat = Number(params.focusLat);
@@ -173,21 +311,34 @@ export default function MapWebScreen() {
 
       const title = pin.location_label ?? (pin.pin_type === 'camera' ? 'Camera pin' : 'Police car pin');
       const detail = pin.note ?? `Expires ${new Date(pin.expires_at).toLocaleString()}`;
-      marker.bindPopup(`<b>${title}</b><br/>${detail}<br/><button id="rm-${pin.id}">Remove</button>`);
-
-      marker.on('popupopen', () => {
-        const btn = document.getElementById(`rm-${pin.id}`);
-        if (!btn) return;
-        btn.onclick = async () => {
-          await deletePin(pin.id);
-          setPins((prev) => prev.filter((p) => p.id !== pin.id));
-          map.closePopup();
-        };
+      marker.bindPopup(`<b>${title}</b><br/>${detail}`);
+      marker.on('contextmenu', async () => {
+        const confirmed = window.confirm(`Remove pin at "${title}"?`);
+        if (!confirmed) return;
+        await deletePin(pin.id);
+        setPins((prev) => prev.filter((p) => p.id !== pin.id));
       });
 
       markersRef.current[pin.id] = marker;
     }
   }, [pins]);
+
+  const centerOnMe = () => {
+    if (!navigator.geolocation || !mapRef.current) return;
+    navigator.geolocation.getCurrentPosition((position) => {
+      const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+      setCurrentCoords(coords);
+      mapRef.current?.setView([coords.latitude, coords.longitude], FOCUS_ZOOM);
+    });
+  };
+
+  const enableAlerts = async () => {
+    if (typeof Notification === 'undefined') {
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setAlertsEnabled(permission === 'granted');
+  };
 
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
@@ -209,8 +360,58 @@ export default function MapWebScreen() {
           For better iPhone experience, open in Safari, tap Share, then <b>Add to Home Screen</b>.
         </div>
       ) : null}
-      <div style={{ position: 'absolute', right: 12, top: 12, background: '#fff', borderRadius: 8, padding: 8 }}>
-        Tap map to drop pin. Click pin for details.
+      <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => setRadarOn((v) => !v)}
+          style={{
+            background: radarOn ? '#FFD56A' : '#FFFFFF',
+            borderRadius: 8,
+            border: '1px solid #D1D5DB',
+            padding: '8px 10px',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}>
+          {radarOn ? 'Radar ON' : 'Radar OFF'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void enableAlerts()}
+          style={{
+            background: alertsEnabled ? '#D1FAE5' : '#FFFFFF',
+            borderRadius: 8,
+            border: '1px solid #D1D5DB',
+            padding: '8px 10px',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}>
+          {alertsEnabled ? 'Alerts ON' : 'Enable Alerts'}
+        </button>
+      </div>
+      <button
+        type="button"
+        aria-label="Go to my location"
+        onClick={centerOnMe}
+        style={{
+          position: 'absolute',
+          right: 12,
+          bottom: 86,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          border: '1px solid #D1D5DB',
+          background: '#FFFFFF',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 18,
+          cursor: 'pointer',
+        }}>
+        ◎
+      </button>
+      <div style={{ position: 'absolute', left: 12, bottom: 12, background: '#fff', borderRadius: 8, padding: 8 }}>
+        Tap map to drop pin. Click pin for label. Long-press/right-click pin to remove.
       </div>
     </div>
   );
