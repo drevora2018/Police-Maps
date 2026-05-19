@@ -1,0 +1,7 @@
+appId: com.drevora.policemaps
+---
+- launchApp
+- tapOn: "Map"
+- assertVisible: "Tap map to drop pin"
+- longPressOn: "50%,70%"
+- assertVisible: "Drop pin"

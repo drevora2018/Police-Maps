@@ -1,0 +1,8 @@
+appId: com.drevora.policemaps
+---
+- launchApp
+- assertVisible: "Global Chat"
+- tapOn: "Map"
+- tapOn: "Settings"
+- assertVisible: "Settings"
+- assertVisible: "Theme"
