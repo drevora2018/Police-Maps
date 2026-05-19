@@ -23,11 +23,6 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyBYfyHL6H50qjSWMGPgU5ne5rIpNYJdjU4"
-        }
-      },
       "package": "com.drevora.policemaps"
     },
     "web": {
@@ -52,7 +47,8 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -63,6 +59,12 @@
       "eas": {
         "projectId": "074c5c1d-edd3-42b4-8c66-104ca2094577"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/074c5c1d-edd3-42b4-8c66-104ca2094577"
     }
   }
 }
