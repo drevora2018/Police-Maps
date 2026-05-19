@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 import { PinType, ThemePreference } from '@/types/domain';
 
@@ -16,8 +17,23 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   defaultPinType: 'police_car',
 };
 
+async function getStoredValue(key: string) {
+  if (Platform.OS === 'web') {
+    return globalThis.localStorage?.getItem(key) ?? null;
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function setStoredValue(key: string, value: string) {
+  if (Platform.OS === 'web') {
+    globalThis.localStorage?.setItem(key, value);
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
 export async function getAppPreferences(): Promise<AppPreferences> {
-  const raw = await SecureStore.getItemAsync(APP_PREFERENCES_KEY);
+  const raw = await getStoredValue(APP_PREFERENCES_KEY);
   if (!raw) return DEFAULT_PREFERENCES;
 
   try {
@@ -36,6 +52,5 @@ export async function getAppPreferences(): Promise<AppPreferences> {
 }
 
 export async function saveAppPreferences(preferences: AppPreferences) {
-  await SecureStore.setItemAsync(APP_PREFERENCES_KEY, JSON.stringify(preferences));
+  await setStoredValue(APP_PREFERENCES_KEY, JSON.stringify(preferences));
 }
-
