@@ -1,6 +1,5 @@
 import React from 'react';
 import { useLocalSearchParams } from 'expo-router';
-import 'leaflet/dist/leaflet.css';
 
 import { createPin, deletePin, listActivePins, subscribeToPinChanges } from '@/services/pins-service';
 import { Pin, PinType } from '@/types/domain';
@@ -70,6 +69,17 @@ export default function MapWebScreen() {
       (window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
       window.matchMedia('(display-mode: standalone)').matches;
     setShowIosInstallHint(isiOS && !isStandalone);
+  }, []);
+
+  React.useEffect(() => {
+    const id = 'leaflet-css-cdn';
+    if (!document.getElementById(id)) {
+      const link = document.createElement('link');
+      link.id = id;
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
   }, []);
 
   React.useEffect(() => {
